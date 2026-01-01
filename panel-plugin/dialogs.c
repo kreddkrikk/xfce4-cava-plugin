@@ -64,11 +64,12 @@ static void plugin_configure_response(
 }
 
 enum {
-    UPDATE_NONE, // no need for manual update
-    UPDATE_SIZE, // resize display
-    UPDATE_COLORS, // reconfigure bar colors
-    UPDATE_CONFIG, // reallocate buffers and cava plan
-    UPDATE_ALL // reconfigure and reallocate everything
+    UPDATE_NONE = 0, // no need for manual update
+    UPDATE_STYLES = 1, // update CSS styles
+    UPDATE_SIZE = 2, // resize display
+    UPDATE_COLORS = 4, // reconfigure bar colors
+    UPDATE_CONFIG = 8, // reallocate buffers and cava plan
+    UPDATE_ALL = 16, // reconfigure and reallocate everything
 } UpdateEvent;
 
 typedef struct {
@@ -78,28 +79,27 @@ typedef struct {
 } SettingChanged;
 
 static void setting_changed(SettingChanged *sc) {
-    switch (sc->update_event) {
-        case UPDATE_NONE:
-            break;
-        case UPDATE_SIZE:
-            resize_display(sc->cava);
-            break;
-        case UPDATE_COLORS:
-            config_colors(sc->cava);
-            break;
-        case UPDATE_CONFIG:
-            free_cava(sc->cava);
-            config_cava(sc->cava); // includes colors update
-            break;
-        case UPDATE_ALL:
-            resize_display(sc->cava);
-            free_cava(sc->cava);
-            config_cava(sc->cava);
-            break;
+    gint u = sc->update_event;
+    if (u == UPDATE_NONE)
+        return;
+    if (u & UPDATE_SIZE)
+        resize_display(sc->cava);
+    if (u & UPDATE_STYLES)
+        restyle_display(sc->cava);
+    if (u & UPDATE_COLORS)
+        config_colors(sc->cava);
+    if (u & UPDATE_CONFIG) {
+        free_cava(sc->cava);
+        config_cava(sc->cava); // includes colors update
+    }
+    if (u & UPDATE_ALL) {
+        resize_display(sc->cava);
+        free_cava(sc->cava);
+        config_cava(sc->cava);
     }
 }
 
-#define SETTING_CHANGED_INIT(event, cb) \
+#define SETTING_CHANGED_INIT(widget, event, cb) \
     SettingChanged *sc = g_slice_new0(SettingChanged); \
     sc->cava = c; \
     sc->setting = setting; \
@@ -202,6 +202,14 @@ static void reset_equalizer_button(GtkButton *widget, CavaPlugin *c) {
     }
 }
 
+static void text_buffer_changed(GtkTextBuffer *widget, SettingChanged *sc) {
+    GtkTextIter start, end;
+    gtk_text_buffer_get_start_iter(widget, &start);
+    gtk_text_buffer_get_end_iter(widget, &end);
+    *(gchar **)sc->setting = gtk_text_buffer_get_text(widget, &start, &end, FALSE);
+    setting_changed(sc);
+}
+
 // Prepends a widget with a label, packs it into a single row or column and 
 // appends the packed row or column to a parent container box.
 //
@@ -234,7 +242,7 @@ static GtkWidget *create_spin_button(CavaPlugin *c, GtkWidget *container,
     GtkWidget *widget = gtk_spin_button_new_with_range(min, max, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(widget), *setting);
     label_and_pack_widget(container, row, widget, sg, text, 0.0, FALSE);
-    SETTING_CHANGED_INIT("value-changed", spin_button_changed);
+    SETTING_CHANGED_INIT(widget, "value-changed", spin_button_changed);
     return widget;
 }
 
@@ -244,7 +252,7 @@ static GtkWidget *create_check_button(CavaPlugin *c, GtkWidget *container,
     GtkWidget *widget = gtk_check_button_new_with_mnemonic(text);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widget), *setting);
     gtk_box_pack_start(GTK_BOX(container), GTK_WIDGET(widget), FALSE, FALSE, 0);
-    SETTING_CHANGED_INIT("toggled", check_button_changed);
+    SETTING_CHANGED_INIT(widget, "toggled", check_button_changed);
     return widget;
 }
 
@@ -258,7 +266,7 @@ static GtkWidget *create_combo_box(CavaPlugin *c, GtkWidget *container,
         gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(widget), NULL, items[i]);
     gtk_combo_box_set_active(GTK_COMBO_BOX(widget), *setting);
     label_and_pack_widget(container, row, widget, sg, text, 0.0, FALSE);
-    SETTING_CHANGED_INIT("changed", combo_box_changed);
+    SETTING_CHANGED_INIT(widget, "changed", combo_box_changed);
     return widget;
 }
 
@@ -271,7 +279,7 @@ static GtkWidget *create_color_button(CavaPlugin *c, GtkWidget *container,
     GtkWidget *widget = gtk_color_button_new_with_rgba(&color);
     gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(widget), TRUE);
     label_and_pack_widget(container, row, widget, sg, text, 0.0, FALSE);
-    SETTING_CHANGED_INIT("color-set", color_button_changed);
+    SETTING_CHANGED_INIT(widget, "color-set", color_button_changed);
     return widget;
 }
 
@@ -287,7 +295,7 @@ static GtkWidget *create_scale(CavaPlugin *c, GtkWidget *container,
     gtk_range_set_inverted(GTK_RANGE(widget), TRUE);
     gtk_scale_set_value_pos(GTK_SCALE(widget), GTK_POS_BOTTOM);
     label_and_pack_widget(container, column, widget, sg, text, 0.5, TRUE);
-    SETTING_CHANGED_INIT("value-changed", scale_value_changed);
+    SETTING_CHANGED_INIT(widget, "value-changed", scale_value_changed);
     return widget;
 }
 
@@ -296,6 +304,22 @@ static void create_reset_button(CavaPlugin *c, GtkWidget *row, gchar *text,
     GtkWidget *widget = gtk_button_new_with_label(text);
     gtk_box_pack_start(GTK_BOX(row), GTK_WIDGET(widget), FALSE, FALSE, 0);
     g_signal_connect(widget, "clicked", G_CALLBACK(cb), c);
+}
+
+static void create_text_view(CavaPlugin *c, GtkWidget *container, 
+        gint update_event, gchar **setting, gint height) {
+    GtkWidget *widget = gtk_text_view_new();
+    GtkWidget *window = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(window), GTK_SHADOW_IN);
+    gtk_widget_set_size_request(window, -1, height);
+    gtk_text_view_set_monospace(GTK_TEXT_VIEW(widget), TRUE);
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(widget));
+    gtk_text_buffer_set_text(buffer, *setting, -1);
+    gtk_container_add(GTK_CONTAINER(window), widget);
+    gtk_box_pack_start(GTK_BOX(container), window, TRUE, TRUE, 8);
+    gtk_container_set_border_width(GTK_CONTAINER(widget), 18);
+    gtk_container_set_border_width(GTK_CONTAINER(window), 8);
+    SETTING_CHANGED_INIT(buffer, "changed", text_buffer_changed);
 }
 
 static double logspace(double start, double stop, int n, int N) {
@@ -356,8 +380,11 @@ void plugin_configure (XfcePanelPlugin *plugin, CavaPlugin *c) {
         "horizontal",
         "vertical",
     };
-    create_combo_box(c, vbox, sg, UPDATE_SIZE, "Orientation:", items, 
-            ARRAY_SIZE(items), &s->orientation);
+    create_combo_box(c, vbox, sg, UPDATE_SIZE | UPDATE_COLORS, "Orientation:", 
+            items, ARRAY_SIZE(items), &s->orientation);
+    create_spin_button(c, vbox, sg, UPDATE_STYLES | UPDATE_SIZE, "Border:", &s->border, 0, 10);
+    create_spin_button(c, vbox, sg, UPDATE_STYLES | UPDATE_SIZE, "Margin:", &s->margin, 0, 100);
+    create_spin_button(c, vbox, sg, UPDATE_STYLES | UPDATE_SIZE, "Padding:", &s->padding, 0, 100);
 
     gtk_box_pack_start(GTK_BOX(vbox), 
             gtk_separator_new(GTK_ORIENTATION_HORIZONTAL), FALSE, FALSE, 4);
@@ -384,9 +411,11 @@ void plugin_configure (XfcePanelPlugin *plugin, CavaPlugin *c) {
     gtk_container_set_border_width(GTK_CONTAINER(vbox2), 8);
     sg = gtk_size_group_new(GTK_SIZE_GROUP_HORIZONTAL);
     create_color_button(
-            c, vbox2, sg, UPDATE_COLORS, "Background:", &s->background);
+            c, vbox2, sg, UPDATE_STYLES, "Background:", &s->background);
     create_color_button(
             c, vbox2, sg, UPDATE_COLORS, "Foreground:", &s->foreground);
+    create_color_button(
+            c, vbox2, sg, UPDATE_STYLES, "Border:", &s->border_color);
     gtk_box_pack_start(GTK_BOX(vbox2), 
             gtk_separator_new(GTK_ORIENTATION_HORIZONTAL), FALSE, FALSE, 4);
 

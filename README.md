@@ -12,7 +12,7 @@ Debian/Ubuntu:
 
     sudo apt install build-essential libfftw3-dev libpipewire-0.3-dev libpulse-dev libtool automake pkgconf
 
-ArchLinux:
+Arch Linux:
 
     pacman -S base-devel fftw alsa-lib pipewire-pulse xfce4-panel
 
@@ -33,5 +33,4 @@ From source code repository:
 
 - Improve error checking
 - Add theme support
-- Add border option
-- Add margin option
+- Add profile support

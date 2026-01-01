@@ -102,7 +102,6 @@ void config_colors(CavaPlugin *c) {
 }
 
 static gboolean draw_cava(GtkWidget *display, cairo_t *cr, CavaPlugin *c) {
-    GdkRGBA bg;
     CavaSettings *s;
     GtkAllocation alloc;
     gint x, y, w, h, bar_width, bar_spacing;
@@ -112,12 +111,6 @@ static gboolean draw_cava(GtkWidget *display, cairo_t *cr, CavaPlugin *c) {
     bar_width = s->bar_width;
     bar_spacing = s->bar_spacing;
     gtk_widget_get_allocation(display, &alloc);
-
-    // background color
-    rgba_parse(&bg, s->background);
-    cairo_set_source_rgba(cr, bg.red, bg.green, bg.blue, bg.alpha);
-    cairo_rectangle(cr, 0, 0, alloc.width, alloc.height);
-    cairo_fill(cr);
 
     // foreground color
     cairo_set_source(cr, c->foreground);
@@ -241,6 +234,8 @@ static gboolean exec_cava(CavaPlugin *c) {
     if (s->orientation == ORIENT_LEFT || s->orientation == ORIENT_RIGHT || 
             s->orientation == ORIENT_SPLIT_V)
         dimension_value = alloc.width;
+    if (dimension_value < 2)
+        return TRUE;
     pthread_mutex_lock(&audio->lock);
     double sensitivity = (double)s->sensitivity / 100;
     if (s->waveform) {
@@ -561,6 +556,6 @@ void init_cava(CavaPlugin *c) {
     DBG(".");
     init_audio(c);
     config_cava(c);
-
+    c->initialized = TRUE;
     g_signal_connect(G_OBJECT(c->display), "draw", G_CALLBACK(draw_cava), c);
 }

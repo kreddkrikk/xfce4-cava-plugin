@@ -91,6 +91,11 @@ const gint default_ignore = 0;
 const gint default_noise_reduction = 77;
 const gint default_equalizer = 0;
 const gdouble default_equalizer_key = 1.0;
+const gint default_border = 0;
+gchar *default_border_color = "#3fffffff";
+const gint default_margin = 0;
+const gint default_padding = 0;
+gchar *default_css = "#display { background: initial; border: 0; margin: 0; padding: 0; }";
 
 /* prototypes */
 static void plugin_construct(XfcePanelPlugin *plugin);
@@ -175,6 +180,11 @@ void plugin_save(XfcePanelPlugin *plugin, CavaPlugin *c) {
             keys[i] = g_strdup_printf("%d", (gint)(s->equalizer_keys[i] * 10.0));
         xfce_rc_write_list_entry(rc, "equalizer_keys", keys, ",");
         g_strfreev(keys);
+        xfce_rc_write_int_entry(rc, "border", s->border);
+        xfce_rc_write_entry(rc, "border_color", s->border_color);
+        xfce_rc_write_int_entry(rc, "margin", s->margin);
+        xfce_rc_write_int_entry(rc, "padding", s->padding);
+        xfce_rc_write_entry(rc, "css", s->css);
 
         /* close the rc file */
         xfce_rc_close(rc);
@@ -254,6 +264,11 @@ static void plugin_read(CavaPlugin *c) {
                 }
             }
             g_strfreev(keys);
+            s->border = xfce_rc_read_int_entry(rc, "border", default_border);
+            s->border_color = g_strdup(xfce_rc_read_entry(rc, "border_color", default_border_color));
+            s->margin = xfce_rc_read_int_entry(rc, "margin", default_margin);
+            s->padding = xfce_rc_read_int_entry(rc, "padding", default_padding);
+            s->css = g_strdup(xfce_rc_read_entry(rc, "css", default_css));
 
             /* cleanup */
             xfce_rc_close(rc);
@@ -309,6 +324,20 @@ static void plugin_read(CavaPlugin *c) {
     s->equalizer = default_equalizer;
     for (int i = 0; i < EQUALIZER_KEY_COUNT; i++)
         s->equalizer_keys[i] = default_equalizer_key;
+    s->border = default_border;
+    s->border_color = g_strdup(default_border_color);
+    s->margin = default_margin;
+    s->padding = default_padding;
+    s->css = g_strdup(default_css);
+}
+
+// We can initialize CAVA once the display's size has been fully allocated
+static void display_size_allocate(GtkWidget *self, GtkAllocation *allocation, 
+        CavaPlugin *c) {
+    if (!c->initialized) {
+        restyle_display(c);
+        init_cava(c);
+    }
 }
 
 static CavaPlugin *plugin_new(XfcePanelPlugin *plugin) {
@@ -334,16 +363,18 @@ static CavaPlugin *plugin_new(XfcePanelPlugin *plugin) {
     c->hvbox = gtk_box_new(orientation, 2);
     gtk_widget_show(c->hvbox);
     gtk_container_add(GTK_CONTAINER(c->ebox), c->hvbox);
-    gtk_widget_set_valign(c->hvbox, GTK_ALIGN_CENTER);
-    gtk_widget_set_name(c->hvbox, "xfce4-cava-plugin");
+    gtk_widget_set_name(c->hvbox, "hvbox");
 
     /* some plugin widgets */
     c->display = gtk_drawing_area_new();
     gtk_widget_show(c->display);
     gtk_container_add(GTK_CONTAINER(c->hvbox), c->display);
-    gtk_widget_set_valign(c->display, GTK_ALIGN_CENTER);
+    g_signal_connect(G_OBJECT(c->display), "size-allocate", 
+            G_CALLBACK(display_size_allocate), c);
 
-    init_cava(c);
+    c->css = gtk_css_provider_new();
+    gtk_style_context_add_provider_for_screen(gdk_screen_get_default(),
+            GTK_STYLE_PROVIDER(c->css), GTK_STYLE_PROVIDER_PRIORITY_USER);
 
     return c;
 }
@@ -363,6 +394,8 @@ static void plugin_free(XfcePanelPlugin *plugin, CavaPlugin *c) {
     if (G_LIKELY(s->source != NULL)) g_free(s->source);
     if (G_LIKELY(s->background != NULL)) g_free(s->background);
     if (G_LIKELY(s->foreground != NULL)) g_free(s->foreground);
+    if (G_LIKELY(s->border_color != NULL)) g_free(s->border_color);
+    if (G_LIKELY(s->css != NULL)) g_free(s->css);
     if (G_LIKELY(s->theme != NULL)) g_free(s->theme);
     if (G_LIKELY(s->gradient_colors != NULL)) 
         g_strfreev(s->gradient_colors);
@@ -399,6 +432,40 @@ void resize_display(CavaPlugin *c) {
     }
 
     gtk_widget_set_size_request(c->display, width, height);
+
+    config_colors(c);
+}
+
+void restyle_display(CavaPlugin *c) {
+    GdkRGBA rgba;
+    CavaSettings *s;
+    gchar *background, *border_color;
+    gint plugin_size, margin, padding, border;
+
+    s = &c->settings;
+
+    plugin_size = xfce_panel_plugin_get_size(c->plugin);
+    margin = s->margin;
+    padding = s->padding;
+    border = s->border;
+    if ((margin + padding + border) * 2 > plugin_size - 2)
+        margin = padding = border = 0;
+
+    // CSS can only render alpha channel with rgba(r,g,b,a)
+    rgba_parse(&rgba, s->border_color);
+    border_color = gdk_rgba_to_string(&rgba);
+    rgba_parse(&rgba, s->background);
+    background = gdk_rgba_to_string(&rgba);
+
+    // apply new CSS settings
+    gchar *css = g_strdup_printf(
+            "#hvbox { background: %s; border: %dpx solid %s; margin: %dpx; padding: %dpx; }",
+            background, border, border_color, margin, padding);
+    gtk_css_provider_load_from_data(c->css, css, -1, NULL);
+
+    // done
+    g_free(border_color);
+    g_free(background);
 }
 
 void reset_equalizer(CavaPlugin *c) {

@@ -112,6 +112,11 @@ typedef struct {
     gint noise_reduction;
     gint equalizer;
     gdouble equalizer_keys[EQUALIZER_KEY_COUNT];
+    gint border;
+    gchar *border_color;
+    gint margin;
+    gint padding;
+    gchar *css;
 } CavaSettings;
 
 /* plugin structure */
@@ -128,6 +133,7 @@ typedef struct
     /* plugin settings */
     GtkWidget       *settings_dialog;
     CavaSettings    settings;
+    GtkCssProvider  *css;
 
     /* cava */
     struct cava_plan *plan;
@@ -135,6 +141,7 @@ typedef struct
     cairo_pattern_t *foreground;
 
     /* cava data */
+    gboolean initialized;
 }
 CavaPlugin;
 
@@ -142,6 +149,7 @@ void init_cava(CavaPlugin *cava);
 void config_cava(CavaPlugin *cava);
 void free_cava(CavaPlugin *cava);
 void resize_display(CavaPlugin *cava);
+void restyle_display(CavaPlugin *cava);
 void config_colors(CavaPlugin *cava);
 void rgba_parse(GdkRGBA *c, gchar *spec);
 void reset_equalizer(CavaPlugin *cava);
