@@ -2,7 +2,7 @@
 
 [CAVA](https://github.com/karlstav/cava) plugin for xfce4-panel. This is a work in progress. Only [PipeWire](https://github.com/PipeWire/pipewire) and [PulseAudio](https://github.com/pulseaudio/pulseaudio) are currently supported.
 
-![plugin](https://github.com/kreddkrikk/xfce4-cava-plugin/blob/master/cava.gif "plugin")
+![plugin](https://github.com/kreddkrikk/xfce4-cava-plugin/blob/main/cava.gif "plugin")
 
 ----
 
