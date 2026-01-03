@@ -494,12 +494,12 @@ void config_cava(CavaPlugin *c) {
     if (s->stereo && audio->channels == 1)
         s->stereo = 0;
     output_channels = 1;
-    if (s->stereo)
+    if (s->stereo && s->bars > 1)
         output_channels = 2;
     // getting numbers of bars
     number_of_bars = s->bars;
     if (s->stereo)
-        number_of_bars = s->bars / 2 * 2;
+        number_of_bars = s->bars / output_channels * output_channels;
     raw_number_of_bars = (number_of_bars / output_channels) * audio->channels;
     if (s->waveform) {
         raw_number_of_bars = number_of_bars;
